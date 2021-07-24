@@ -10,11 +10,13 @@ rust_library {
     srcs: ["src/lib.rs"],
     edition: "2018",
     features: [
-        "default",
+        "bigint",
+        "num-bigint",
         "std",
     ],
     rustlibs: [
         "libnom",
+        "libnum_bigint",
         "libnum_traits",
         "librusticata_macros",
     ],
