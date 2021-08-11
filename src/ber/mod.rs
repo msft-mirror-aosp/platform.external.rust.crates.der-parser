@@ -47,7 +47,6 @@
 //! ```
 
 mod ber;
-mod integer;
 mod multi;
 mod parser;
 mod print;
@@ -62,3 +61,8 @@ pub use crate::ber::print::*;
 #[cfg(feature = "serialize")]
 pub use crate::ber::serialize::*;
 pub use crate::ber::tagged::*;
+
+use alloc::borrow::Cow;
+use alloc::boxed::Box;
+use alloc::vec::Vec;
+use core::convert::{Into, TryFrom};
