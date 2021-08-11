@@ -12,7 +12,6 @@ rust_library {
     features: [
         "bigint",
         "num-bigint",
-        "std",
     ],
     rustlibs: [
         "libnom",
