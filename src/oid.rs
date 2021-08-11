@@ -47,16 +47,21 @@
 //! ```
 //! *Attention*, be aware that the latter version might not handle the case of a relative oid correctly. An
 //! extra check might be necessary.
-use std::borrow::Cow;
-use std::convert::From;
-use std::fmt;
-use std::iter::{ExactSizeIterator, FusedIterator, Iterator};
-use std::ops::Shl;
-use std::str::FromStr;
+use alloc::borrow::Cow;
+use alloc::fmt;
+use alloc::str::FromStr;
+use alloc::string::{String, ToString};
+use alloc::vec::Vec;
+use core::convert::From;
+use core::iter::{ExactSizeIterator, FusedIterator, Iterator};
+use core::ops::Shl;
 
 #[cfg(feature = "bigint")]
 use num_bigint::BigUint;
 use num_traits::Num;
+
+#[cfg(not(feature = "std"))]
+use alloc::format;
 
 #[derive(Debug)]
 pub enum ParseError {
@@ -209,10 +214,10 @@ impl<'a> Oid<'a> {
         &'_ self,
     ) -> impl Iterator<Item = BigUint> + FusedIterator + ExactSizeIterator + '_ {
         SubIdentifierIterator {
-            oid: self,
+            oid: &self,
             pos: 0,
             first: false,
-            n: std::marker::PhantomData,
+            n: core::marker::PhantomData,
         }
     }
 
@@ -245,10 +250,10 @@ impl<'a> Oid<'a> {
         }
 
         Some(SubIdentifierIterator {
-            oid: self,
+            oid: &self,
             pos: 0,
             first: false,
-            n: std::marker::PhantomData,
+            n: core::marker::PhantomData,
         })
     }
 }
@@ -260,7 +265,7 @@ struct SubIdentifierIterator<'a, N: Repr> {
     oid: &'a Oid<'a>,
     pos: usize,
     first: bool,
-    n: std::marker::PhantomData<&'a N>,
+    n: core::marker::PhantomData<&'a N>,
 }
 
 impl<'a, N: Repr> Iterator for SubIdentifierIterator<'a, N> {
@@ -358,6 +363,7 @@ impl<'a> FromStr for Oid<'a> {
 mod tests {
     use crate::oid::Oid;
     use std::borrow::Cow;
+    use std::borrow::ToOwned;
     use std::str::FromStr;
 
     #[test]
@@ -437,6 +443,7 @@ mod tests {
         {
             use num_bigint::BigUint;
             use num_traits::FromPrimitive;
+            use std::vec::Vec;
 
             let oid_raw = Oid::new(Cow::Borrowed(&[0]));
             let ids: Vec<BigUint> = oid_raw.iter_bigint().collect();
@@ -444,6 +451,7 @@ mod tests {
             assert_eq!(oid_raw.iter_bigint().len(), 1);
         }
         {
+            use std::vec::Vec;
             let oid_raw = Oid::new(Cow::Borrowed(&[0]));
             let ids: Vec<u64> = oid_raw.iter().unwrap().collect();
             assert_eq!(vec![0], ids);
