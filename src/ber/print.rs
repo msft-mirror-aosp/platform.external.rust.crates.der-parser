@@ -1,8 +1,10 @@
 use crate::ber::BitStringObject;
 use crate::ber::{BerObject, BerObjectContent, BerTag};
-use std::fmt;
-use std::iter::FromIterator;
-use std::str;
+use alloc::string::String;
+use alloc::vec::Vec;
+use core::fmt;
+use core::iter::FromIterator;
+use core::str;
 
 use rusticata_macros::debug;
 
@@ -77,7 +79,7 @@ impl<'a> fmt::Debug for PrettyBer<'a> {
         fn print_utf32_string_with_type(f: &mut fmt::Formatter, s: &[u8], ty: &str) -> fmt::Result {
             let chars: Option<Vec<char>> = s
                 .chunks_exact(4)
-                .map(|a| std::char::from_u32(u32::from_be_bytes([a[0], a[1], a[2], a[3]])))
+                .map(|a| core::char::from_u32(u32::from_be_bytes([a[0], a[1], a[2], a[3]])))
                 .collect();
 
             match chars {
@@ -116,6 +118,9 @@ impl<'a> fmt::Debug for PrettyBer<'a> {
                     None => writeln!(f, "NONE"),
                 }
             }
+            BerObjectContent::Private(ref hdr, bytes) => {
+                writeln!(f, "Private(c:{} s:{} t:{}): {:?}", hdr.class, hdr.structured, hdr.tag.0, debug::HexSlice(bytes))
+            },
             BerObjectContent::Tagged(class, tag, ref obj) => {
                 writeln!(f, "ContextSpecific [{} {}] {{", class, tag)?;
                 write!(f, "{:?}", self.next_indent(obj))?;
