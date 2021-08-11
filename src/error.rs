@@ -2,9 +2,10 @@
 
 use crate::ber::BerObject;
 use crate::der::DerObject;
-use alloc::fmt;
 use nom::error::{ErrorKind, FromExternalError, ParseError};
 use nom::IResult;
+use std::error::Error;
+use std::fmt;
 
 /// Holds the result of parsing functions
 ///
@@ -21,7 +22,7 @@ pub type BerResult<'a, O = BerObject<'a>> = IResult<&'a [u8], O, BerError>;
 pub type DerResult<'a> = BerResult<'a, DerObject<'a>>;
 
 /// Error for BER/DER parsers
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum BerError {
     /// BER object does not have the expected type
     BerTypeError,
@@ -44,6 +45,8 @@ pub enum BerError {
 
     /// BER integer is too large to fit in a native type. Use `as_bigint()`
     IntegerTooLarge,
+    /// BER integer is negative, while an unsigned integer was requested
+    IntegerNegative,
 
     /// BER recursive parsing reached maximum depth (See
     /// [MAX_RECURSION](../ber/constant.MAX_RECURSION.html))
@@ -94,14 +97,11 @@ impl fmt::Display for BerError {
     }
 }
 
-#[cfg(feature = "std")]
-impl std::error::Error for BerError {}
+impl Error for BerError {}
 
-#[cfg(all(test, feature = "std"))]
+#[cfg(test)]
 mod tests {
     use super::*;
-    use std::boxed::Box;
-    use std::error::Error;
 
     #[test]
     fn test_unwrap_bererror() {
