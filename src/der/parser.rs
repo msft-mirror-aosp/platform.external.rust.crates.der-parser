@@ -5,8 +5,7 @@ use nom::bytes::streaming::take;
 use nom::number::streaming::be_u8;
 use nom::{Err, Needed};
 use rusticata_macros::custom_check;
-
-use crate::ber::MAX_RECURSION;
+use std::convert::{Into, TryFrom};
 
 /// Parse DER object recursively
 ///
@@ -382,22 +381,36 @@ where
     parse_ber_implicit(i, tag, f)
 }
 
+/// Parse DER object and try to decode it as a 32-bits signed integer
+///
+/// Return `IntegerTooLarge` if object is an integer, but can not be represented in the target
+/// integer type.
+#[inline]
+pub fn parse_der_i32(i: &[u8]) -> BerResult<i32> {
+    let (rem, der) = parse_der_integer(i)?;
+    let int = der.as_i32().map_err(nom::Err::Error)?;
+    Ok((rem, int))
+}
+
+/// Parse DER object and try to decode it as a 64-bits signed integer
+///
+/// Return `IntegerTooLarge` if object is an integer, but can not be represented in the target
+/// integer type.
+#[inline]
+pub fn parse_der_i64(i: &[u8]) -> BerResult<i64> {
+    let (rem, der) = parse_der_integer(i)?;
+    let int = der.as_i64().map_err(nom::Err::Error)?;
+    Ok((rem, int))
+}
+
 /// Parse DER object and try to decode it as a 32-bits unsigned integer
 ///
 /// Return `IntegerTooLarge` if object is an integer, but can not be represented in the target
 /// integer type.
 pub fn parse_der_u32(i: &[u8]) -> BerResult<u32> {
-    parse_der_container(|content, hdr| {
-        if hdr.tag != DerTag::Integer {
-            return Err(Err::Error(BerError::InvalidTag));
-        }
-        let l = bytes_to_u64(content)?;
-        if l > 0xffff_ffff {
-            Err(Err::Error(BerError::IntegerTooLarge))
-        } else {
-            Ok((&b""[..], l as u32))
-        }
-    })(i)
+    let (rem, der) = parse_der_integer(i)?;
+    let int = der.as_u32().map_err(nom::Err::Error)?;
+    Ok((rem, int))
 }
 
 /// Parse DER object and try to decode it as a 64-bits unsigned integer
@@ -405,13 +418,9 @@ pub fn parse_der_u32(i: &[u8]) -> BerResult<u32> {
 /// Return `IntegerTooLarge` if object is an integer, but can not be represented in the target
 /// integer type.
 pub fn parse_der_u64(i: &[u8]) -> BerResult<u64> {
-    parse_der_container(|content, hdr| {
-        if hdr.tag != DerTag::Integer {
-            return Err(Err::Error(BerError::InvalidTag));
-        }
-        let l = bytes_to_u64(content)?;
-        Ok((&b""[..], l))
-    })(i)
+    let (rem, der) = parse_der_integer(i)?;
+    let int = der.as_u64().map_err(nom::Err::Error)?;
+    Ok((rem, int))
 }
 
 /// Parse DER object and get content as slice
@@ -518,6 +527,17 @@ pub fn der_read_element_content_as(
             // exception: read and verify padding bits
             return der_read_content_bitstring(i, l);
         }
+        DerTag::Integer => {
+            // verify leading zeros
+            match i[..l] {
+                [] => return Err(nom::Err::Error(BerError::DerConstraintFailed)),
+                [0, 0, ..] => return Err(nom::Err::Error(BerError::DerConstraintFailed)),
+                [0, byte, ..] if byte < 0x80 => {
+                    return Err(nom::Err::Error(BerError::DerConstraintFailed));
+                }
+                _ => (),
+            }
+        }
         DerTag::NumericString
         | DerTag::VisibleString
         | DerTag::PrintableString
@@ -555,13 +575,7 @@ fn der_read_element_content_recursive<'a>(
     max_depth: usize,
 ) -> DerResult<'a> {
     match hdr.class {
-        BerClass::Universal => (),
-        BerClass::Private => {
-            let (rem, content) = ber_get_object_content(i, &hdr, max_depth)?;
-            let content = BerObjectContent::Private(hdr.clone(), content);
-            let obj = BerObject::from_header_and_content(hdr, content);
-            return Ok((rem, obj));
-        }
+        DerClass::Universal | DerClass::Private => (),
         _ => {
             let (i, content) = ber_get_object_content(i, &hdr, max_depth)?;
             let content = DerObjectContent::Unknown(hdr.tag, content);
