@@ -1,4 +1,3 @@
-extern crate alloc;
 use der_parser::ber::*;
 use der_parser::der::*;
 use der_parser::error::*;
