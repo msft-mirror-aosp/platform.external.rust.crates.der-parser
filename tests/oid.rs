@@ -1,6 +1,5 @@
 //! Test the API provided to compare OIDs
 
-extern crate alloc;
 use der_parser::oid;
 use der_parser::oid::Oid;
 
