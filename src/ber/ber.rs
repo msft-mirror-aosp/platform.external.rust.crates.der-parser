@@ -2,15 +2,17 @@ use crate::ber::bitstring_to_u64;
 use crate::ber::integer::*;
 use crate::error::BerError;
 use crate::oid::Oid;
-#[cfg(not(any(target_os = "android", target_os = "linux")))]
-use nom::bitvec::{order::Msb0, slice::BitSlice};
+use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
+use alloc::vec::Vec;
+#[cfg(feature = "bitvec")]
+use bitvec::{order::Msb0, slice::BitSlice};
+use core::convert::AsRef;
+use core::convert::From;
+use core::convert::TryFrom;
+use core::fmt;
+use core::ops::Index;
 use rusticata_macros::newtype_enum;
-use std::convert::AsRef;
-use std::convert::From;
-use std::convert::TryFrom;
-use std::fmt;
-use std::ops::Index;
-use std::vec::Vec;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct BerClassFromIntError(pub(crate) ());
@@ -183,9 +185,11 @@ pub enum BerObjectContent<'a> {
     Optional(Option<Box<BerObject<'a>>>),
     /// Tagged object (EXPLICIT): class, tag  and content of inner object
     Tagged(BerClass, BerTag, Box<BerObject<'a>>),
+    /// Private
+    Private(BerObjectHeader<'a>, &'a [u8]),
 
     /// Unknown object: object tag (copied from header), and raw content
-    Unknown(BerTag, &'a [u8]),
+    Unknown(BerClass, BerTag, &'a [u8]),
 }
 
 impl fmt::Display for BerClass {
@@ -391,15 +395,6 @@ impl<'a> BerObject<'a> {
         BerObject::from_obj(BerObjectContent::Set(l))
     }
 
-    /// Build a BER header from this object content
-    #[deprecated(
-        since = "0.5.0",
-        note = "please use `obj.header` or `obj.header.clone()` instead"
-    )]
-    pub fn to_header(&self) -> BerObjectHeader {
-        self.header.clone()
-    }
-
     /// Attempt to read a signed integer value from DER object.
     ///
     /// This can fail if the object is not an integer, or if it is too large.
@@ -519,7 +514,7 @@ impl<'a> BerObject<'a> {
     }
 
     /// Constructs a shared `&BitSlice` reference over the object data, if available as slice.
-    #[cfg(not(any(target_os = "android", target_os = "linux")))]
+    #[cfg(feature = "bitvec")]
     pub fn as_bitslice(&self) -> Result<&BitSlice<Msb0, u8>, BerError> {
         self.content.as_bitslice()
     }
@@ -595,16 +590,6 @@ impl<'a> From<BerObjectContent<'a>> for BerObject<'a> {
     }
 }
 
-/// Replacement function for Option.xor (>= 1.37)
-#[inline]
-pub(crate) fn xor_option<T>(opta: Option<T>, optb: Option<T>) -> Option<T> {
-    match (opta, optb) {
-        (Some(a), None) => Some(a),
-        (None, Some(b)) => Some(b),
-        _ => None,
-    }
-}
-
 /// Compare two BER headers. `len` fields are compared only if both objects have it set (same for `raw_tag`)
 impl<'a> PartialEq<BerObjectHeader<'a>> for BerObjectHeader<'a> {
     fn eq(&self, other: &BerObjectHeader) -> bool {
@@ -620,7 +605,7 @@ impl<'a> PartialEq<BerObjectHeader<'a>> for BerObjectHeader<'a> {
             }
             && {
                 // it tag is present for both, compare it
-                if xor_option(self.raw_tag, other.raw_tag).is_none() {
+                if self.raw_tag.xor(other.raw_tag).is_none() {
                     self.raw_tag == other.raw_tag
                 } else {
                     true
@@ -735,7 +720,7 @@ impl<'a> BerObjectContent<'a> {
             }
             BerObjectContent::BitString(ignored_bits, data) => {
                 bitstring_to_u64(*ignored_bits as usize, data).and_then(|x| {
-                    if x > u64::from(std::u32::MAX) {
+                    if x > u64::from(core::u32::MAX) {
                         Err(BerError::IntegerTooLarge)
                     } else {
                         Ok(x as u32)
@@ -743,7 +728,7 @@ impl<'a> BerObjectContent<'a> {
                 })
             }
             BerObjectContent::Enum(i) => {
-                if *i > u64::from(std::u32::MAX) {
+                if *i > u64::from(core::u32::MAX) {
                     Err(BerError::IntegerTooLarge)
                 } else {
                     Ok(*i as u32)
@@ -802,10 +787,10 @@ impl<'a> BerObjectContent<'a> {
     }
 
     /// Constructs a shared `&BitSlice` reference over the object data, if available as slice.
-    #[cfg(not(any(target_os = "android", target_os = "linux")))]
+    #[cfg(feature = "bitvec")]
     pub fn as_bitslice(&self) -> Result<&BitSlice<Msb0, u8>, BerError> {
         self.as_slice()
-            .and_then(|s| BitSlice::<Msb0, _>::from_slice(s).ok_or(BerError::BerValueError))
+            .and_then(|s| BitSlice::<Msb0, _>::from_slice(s).map_err(|_| BerError::BerValueError))
     }
 
     pub fn as_sequence(&self) -> Result<&Vec<BerObject<'a>>, BerError> {
@@ -842,7 +827,8 @@ impl<'a> BerObjectContent<'a> {
             BerObjectContent::ObjectDescriptor(s) |
             BerObjectContent::GraphicString(s) |
             BerObjectContent::GeneralString(s) |
-            BerObjectContent::Unknown(_,s) => Ok(s),
+            BerObjectContent::Unknown(_, _,s) |
+            BerObjectContent::Private(_,s) => Ok(s),
             _ => Err(BerError::BerTypeError),
         }
     }
@@ -890,7 +876,8 @@ impl<'a> BerObjectContent<'a> {
             BerObjectContent::GraphicString(_)     => BerTag::GraphicString,
             BerObjectContent::GeneralString(_)     => BerTag::GeneralString,
             BerObjectContent::Tagged(_,x,_) |
-            BerObjectContent::Unknown(x,_)         => *x,
+            BerObjectContent::Unknown(_, x,_)         => *x,
+            &BerObjectContent::Private(ref hdr, _) => hdr.tag,
             BerObjectContent::Optional(Some(obj))  => obj.content.tag(),
             BerObjectContent::Optional(None)       => BerTag(0x00), // XXX invalid !
         }
@@ -917,12 +904,12 @@ impl<'a> BerObject<'a> {
     ///
     /// let (_, object) = parse_ber_integer(data).expect("parsing failed");
     /// # #[cfg(feature = "bigint")]
-    /// assert_eq!(object.as_bigint(), Some(65537.into()))
+    /// assert_eq!(object.as_bigint(), Ok(65537.into()))
     /// ```
-    pub fn as_bigint(&self) -> Option<BigInt> {
+    pub fn as_bigint(&self) -> Result<BigInt, BerError> {
         match self.content {
-            BerObjectContent::Integer(s) => Some(BigInt::from_signed_bytes_be(s)),
-            _ => None,
+            BerObjectContent::Integer(s) => Ok(BigInt::from_signed_bytes_be(s)),
+            _ => Err(BerError::InvalidTag),
         }
     }
 
@@ -939,17 +926,17 @@ impl<'a> BerObject<'a> {
     ///
     /// let (_, object) = parse_ber_integer(data).expect("parsing failed");
     /// # #[cfg(feature = "bigint")]
-    /// assert_eq!(object.as_biguint(), Some(65537_u32.into()))
+    /// assert_eq!(object.as_biguint(), Ok(65537_u32.into()))
     /// ```
-    pub fn as_biguint(&self) -> Option<BigUint> {
+    pub fn as_biguint(&self) -> Result<BigUint, BerError> {
         match self.content {
             BerObjectContent::Integer(s) => {
                 if is_highest_bit_set(s) {
-                    return None;
+                    return Err(BerError::IntegerNegative);
                 }
-                Some(BigUint::from_bytes_be(s))
+                Ok(BigUint::from_bytes_be(s))
             }
-            _ => None,
+            _ => Err(BerError::InvalidTag),
         }
     }
 }
@@ -1066,9 +1053,9 @@ impl<'a> BitStringObject<'a> {
     }
 
     /// Constructs a shared `&BitSlice` reference over the object data.
-    #[cfg(not(any(target_os = "android", target_os = "linux")))]
+    #[cfg(feature = "bitvec")]
     pub fn as_bitslice(&self) -> Option<&BitSlice<Msb0, u8>> {
-        BitSlice::<Msb0, _>::from_slice(self.data)
+        BitSlice::<Msb0, _>::from_slice(self.data).ok()
     }
 }
 
@@ -1138,17 +1125,18 @@ mod tests {
         assert!(obj.is_set(17));
     }
 
+    #[cfg(feature = "bitvec")]
     #[test]
-    #[cfg(not(any(target_os = "android", target_os = "linux")))]
     fn test_der_bitslice() {
+        use std::string::String;
         let obj = BitStringObject {
             data: &[0x0f, 0x00, 0x40],
         };
         let slice = obj.as_bitslice().expect("as_bitslice");
-        assert_eq!(slice.get(0), Some(&false));
-        assert_eq!(slice.get(7), Some(&true));
-        assert_eq!(slice.get(9), Some(&false));
-        assert_eq!(slice.get(17), Some(&true));
+        assert_eq!(slice.get(0).as_deref(), Some(&false));
+        assert_eq!(slice.get(7).as_deref(), Some(&true));
+        assert_eq!(slice.get(9).as_deref(), Some(&false));
+        assert_eq!(slice.get(17).as_deref(), Some(&true));
         let s = slice.iter().fold(String::with_capacity(24), |mut acc, b| {
             acc += if *b { "1" } else { "0" };
             acc
@@ -1172,7 +1160,7 @@ mod tests {
         let obj = BerObject::from_obj(BerObjectContent::Integer(b"\x01\x00\x01"));
         let expected = ::num_bigint::BigInt::from(0x10001);
 
-        assert_eq!(obj.as_bigint(), Some(expected));
+        assert_eq!(obj.as_bigint(), Ok(expected));
     }
 
     #[cfg(feature = "bigint")]
@@ -1181,6 +1169,6 @@ mod tests {
         let obj = BerObject::from_obj(BerObjectContent::Integer(b"\x01\x00\x01"));
         let expected = ::num_bigint::BigUint::from(0x10001_u32);
 
-        assert_eq!(obj.as_biguint(), Some(expected));
+        assert_eq!(obj.as_biguint(), Ok(expected));
     }
 }
