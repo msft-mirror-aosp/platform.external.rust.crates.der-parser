@@ -5,9 +5,9 @@
 [![docs.rs](https://docs.rs/der-parser/badge.svg)](https://docs.rs/der-parser)
 [![crates.io](https://img.shields.io/crates/v/der-parser.svg)](https://crates.io/crates/der-parser)
 [![Download numbers](https://img.shields.io/crates/d/der-parser.svg)](https://crates.io/crates/der-parser)
-[![dependency status](https://deps.rs/crate/der-parser/5.1.2/status.svg)](https://deps.rs/crate/der-parser/5.1.2)
+[![dependency status](https://deps.rs/crate/der-parser/5.0.0/status.svg)](https://deps.rs/crate/der-parser/5.0.1)
 [![Github CI](https://github.com/rusticata/der-parser/workflows/Continuous%20integration/badge.svg)](https://github.com/rusticata/der-parser/actions)
-[![Minimum rustc version](https://img.shields.io/badge/rustc-1.44.0+-lightgray.svg)](#rust-version-requirements)
+[![Minimum rustc version](https://img.shields.io/badge/rustc-1.48.0+-lightgray.svg)](#rust-version-requirements)
 
 # BER/DER Parser
 
@@ -174,7 +174,7 @@ let (_, object) = parse_ber_integer(data).expect("parsing failed");
 assert_eq!(object.as_u64(), Ok(65537));
 
 #[cfg(feature = "bigint")]
-assert_eq!(object.as_bigint(), Some(65537.into()))
+assert_eq!(object.as_bigint(), Ok(65537.into()))
 ```
 
 Access to the raw value is possible using the `as_slice` method.
@@ -198,7 +198,7 @@ Some parsing tools (for ex for tagged objects) are available in different forms:
 
 ## Rust version requirements
 
-The 5.0 series of `der-parser` requires **Rustc version 1.44 or greater**, based on nom 6
+The 6.0 series of `der-parser` requires **Rustc version 1.48 or greater**, based on nom 7
 dependencies.
 
 # Serialization

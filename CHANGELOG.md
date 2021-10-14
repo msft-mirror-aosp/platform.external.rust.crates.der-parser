@@ -8,21 +8,39 @@
 
 ### Thanks
 
-## 5.1.2
+## 6.0.0
+
+This release has several major changes:
+- upgrade to nom 7
+- add support for `no_std`
+- remove all macros
+- update MSRV to 1.48
 
 ### Changed/Fixed
 
-- Make `BerError` Copy + Clone
-- Fix clippy warnings (rustc 1.54)
-
-## 5.1.1
-
-### Changed/Fixed
-
+- Do not attempt to parse PRIVATE object contents (closes #48)
 - BER: raise error if using Indefinite length and not constructed
+- Fix `oid!` macro to be independant of `der_parser` crate name and path (#46)
+- Simplify `der-oid-macro`, do not depend on `nom`
 - Fix `INTEGER` signed/unsigned parsing (#49)
-- Fix INTEGER signed/unsigned parsing for bigint/biguint (#49)
-- Doc: clarify documentation for parsing integers (#49)
+- Change `as_bigint()` and `as_uint()` to return a `Result`
+- Remove deprecated functions
+
+### Added
+
+- Added support for `no_std` (#50)
+- Make `BerError` Copy + Clone (#51)
+- Add feature 'bitvec' for `.as_bitslice()` methods
+
+### Removed
+
+- Remove all macros
+
+### Thanks
+
+- @yoguorui for `no_std` support
+- @SergioBenitez for `BerError` traits
+- @lilyball for `INTEGER` parsing
 
 ## 5.1.0
 
