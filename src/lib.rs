@@ -3,9 +3,9 @@
 //! [![docs.rs](https://docs.rs/der-parser/badge.svg)](https://docs.rs/der-parser)
 //! [![crates.io](https://img.shields.io/crates/v/der-parser.svg)](https://crates.io/crates/der-parser)
 //! [![Download numbers](https://img.shields.io/crates/d/der-parser.svg)](https://crates.io/crates/der-parser)
-//! [![dependency status](https://deps.rs/crate/der-parser/5.1.2/status.svg)](https://deps.rs/crate/der-parser/5.1.2)
+//! [![dependency status](https://deps.rs/crate/der-parser/5.0.0/status.svg)](https://deps.rs/crate/der-parser/5.0.1)
 //! [![Github CI](https://github.com/rusticata/der-parser/workflows/Continuous%20integration/badge.svg)](https://github.com/rusticata/der-parser/actions)
-//! [![Minimum rustc version](https://img.shields.io/badge/rustc-1.44.0+-lightgray.svg)](#rust-version-requirements)
+//! [![Minimum rustc version](https://img.shields.io/badge/rustc-1.48.0+-lightgray.svg)](#rust-version-requirements)
 //!
 //! # BER/DER Parser
 //!
@@ -172,7 +172,7 @@
 //! assert_eq!(object.as_u64(), Ok(65537));
 //!
 //! #[cfg(feature = "bigint")]
-//! assert_eq!(object.as_bigint(), Some(65537.into()))
+//! assert_eq!(object.as_bigint(), Ok(65537.into()))
 //! ```
 //!
 //! Access to the raw value is possible using the `as_slice` method.
@@ -196,7 +196,7 @@
 //!
 //! ## Rust version requirements
 //!
-//! The 5.0 series of `der-parser` requires **Rustc version 1.44 or greater**, based on nom 6
+//! The 6.0 series of `der-parser` requires **Rustc version 1.48 or greater**, based on nom 7
 //! dependencies.
 //!
 //! # Serialization
@@ -237,9 +237,13 @@
     no_crate_inject,
     attr(deny(warnings/*, rust_2018_idioms*/), allow(dead_code, unused_variables))
 ))]
+#![no_std]
 
+#[cfg(any(test, feature = "std"))]
 #[macro_use]
-mod macros;
+extern crate std;
+
+extern crate alloc;
 
 #[allow(clippy::module_inception)]
 pub mod ber;
@@ -259,7 +263,32 @@ pub use num_bigint;
 // re-exports nom macros, so this crate's macros can be used without importing nom
 pub use nom::IResult;
 #[doc(hidden)]
-pub use rusticata_macros::{custom_check, flat_take};
+pub use rusticata_macros::custom_check;
+
+#[doc(hidden)]
+pub mod exports {
+    pub use alloc::borrow;
+    pub use der_oid_macro;
+}
 
 /// Procedural macro to get encoded oids, see the [oid module](oid/index.html).
-pub use der_oid_macro::oid;
+#[macro_export]
+macro_rules! oid {
+    (raw $($args:tt)*) => {{
+        $crate::exports::der_oid_macro::encode_oid!($($args)*)
+    }};
+    (rel $($args:tt)*) => {{
+        $crate::oid::Oid::new_relative(
+            $crate::exports::borrow::Cow::Borrowed(&
+                $crate::exports::der_oid_macro::encode_oid!(rel $($args)*)
+            )
+        )
+    }};
+    ($($args:tt)*) => {{
+        $crate::oid::Oid::new(
+            $crate::exports::borrow::Cow::Borrowed(&
+                $crate::exports::der_oid_macro::encode_oid!($($args)*)
+            )
+        )
+    }};
+}
