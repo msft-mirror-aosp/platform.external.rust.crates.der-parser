@@ -7,8 +7,6 @@ use nom::multi::{many0, many_till};
 use nom::number::streaming::be_u8;
 use nom::{Err, Needed, Offset};
 use rusticata_macros::{combinator::parse_hex_to_u64, custom_check};
-use std::borrow::Cow;
-use std::convert::{Into, TryFrom};
 
 /// Default maximum recursion limit
 pub const MAX_RECURSION: usize = 50;
@@ -280,7 +278,7 @@ fn ber_read_content_enum(i: &[u8], len: usize) -> BerResult<BerObjectContent> {
 
 fn ber_read_content_utf8string(i: &[u8], len: usize) -> BerResult<BerObjectContent> {
     let (i, bytes) = take(len)(i)?;
-    let s = std::str::from_utf8(bytes)
+    let s = core::str::from_utf8(bytes)
         .map_err(|_| Err::Error(BerError::StringInvalidCharset))
         .map(|s| BerObjectContent::UTF8String(s))?;
     Ok((i, s))
@@ -345,7 +343,7 @@ fn ber_read_content_numericstring<'a>(i: &'a [u8], len: usize) -> BerResult<BerO
     if !bytes.iter().all(is_numeric) {
         return Err(Err::Error(BerError::StringInvalidCharset));
     }
-    let s = std::str::from_utf8(bytes)
+    let s = core::str::from_utf8(bytes)
         .map_err(|_| Err::Error(BerError::StringInvalidCharset))
         .map(|s| BerObjectContent::NumericString(s))?;
     Ok((i, s))
@@ -361,7 +359,7 @@ fn ber_read_content_visiblestring<'a>(i: &'a [u8], len: usize) -> BerResult<BerO
     if !bytes.iter().all(is_visible) {
         return Err(Err::Error(BerError::StringInvalidCharset));
     }
-    let s = std::str::from_utf8(bytes)
+    let s = core::str::from_utf8(bytes)
         .map_err(|_| Err::Error(BerError::StringInvalidCharset))
         .map(|s| BerObjectContent::VisibleString(s))?;
     Ok((i, s))
@@ -395,7 +393,7 @@ fn ber_read_content_printablestring<'a>(
     if !bytes.iter().all(is_printable) {
         return Err(Err::Error(BerError::StringInvalidCharset));
     }
-    let s = std::str::from_utf8(bytes)
+    let s = core::str::from_utf8(bytes)
         .map_err(|_| Err::Error(BerError::StringInvalidCharset))
         .map(|s| BerObjectContent::PrintableString(s))?;
     Ok((i, s))
@@ -416,7 +414,7 @@ fn ber_read_content_ia5string<'a>(i: &'a [u8], len: usize) -> BerResult<BerObjec
     if !bytes.iter().all(u8::is_ascii) {
         return Err(Err::Error(BerError::StringInvalidCharset));
     }
-    let s = std::str::from_utf8(bytes)
+    let s = core::str::from_utf8(bytes)
         .map_err(|_| Err::Error(BerError::StringInvalidCharset))
         .map(|s| BerObjectContent::IA5String(s))?;
     Ok((i, s))
@@ -432,7 +430,7 @@ fn ber_read_content_utctime<'a>(i: &'a [u8], len: usize) -> BerResult<BerObjectC
     if !bytes.iter().all(is_visible) {
         return Err(Err::Error(BerError::StringInvalidCharset));
     }
-    let s = std::str::from_utf8(bytes)
+    let s = core::str::from_utf8(bytes)
         .map_err(|_| Err::Error(BerError::StringInvalidCharset))
         .map(|s| BerObjectContent::UTCTime(s))?;
     Ok((i, s))
@@ -451,7 +449,7 @@ fn ber_read_content_generalizedtime<'a>(
     if !bytes.iter().all(is_visible) {
         return Err(Err::Error(BerError::StringInvalidCharset));
     }
-    let s = std::str::from_utf8(bytes)
+    let s = core::str::from_utf8(bytes)
         .map_err(|_| Err::Error(BerError::StringInvalidCharset))
         .map(|s| BerObjectContent::GeneralizedTime(s))?;
     Ok((i, s))
@@ -995,22 +993,6 @@ where
     }))(i)
 }
 
-/// Parse an optional tagged object, applying function to get content
-///
-/// This function is deprecated, use
-/// [parse_ber_explicit_optional](fn.parse_ber_explicit_optional.html) instead.
-#[deprecated(
-    since = "5.0.0",
-    note = "Please use `parse_ber_explicit_optional` instead"
-)]
-#[inline]
-pub fn parse_ber_explicit<F>(i: &[u8], tag: BerTag, f: F) -> BerResult
-where
-    F: Fn(&[u8]) -> BerResult,
-{
-    parse_ber_explicit_optional(i, tag, f)
-}
-
 /// Parse an implicit tagged object, applying function to read content
 ///
 /// Note: unlike explicit tagged functions, the callback must be a *content* parsing function,
@@ -1184,10 +1166,16 @@ pub fn parse_ber_recursive(i: &[u8], max_depth: usize) -> BerResult {
         custom_check!(i, l > MAX_OBJECT_SIZE, BerError::InvalidLength)?;
     }
     match hdr.class {
-        BerClass::Universal | BerClass::Private => (),
+        BerClass::Universal => (),
+        BerClass::Private => {
+            let (rem, content) = ber_get_object_content(rem, &hdr, max_depth)?;
+            let content = BerObjectContent::Private(hdr.clone(), content);
+            let obj = BerObject::from_header_and_content(hdr, content);
+            return Ok((rem, obj));
+        }
         _ => {
             let (rem, content) = ber_get_object_content(rem, &hdr, max_depth)?;
-            let content = BerObjectContent::Unknown(hdr.tag, content);
+            let content = BerObjectContent::Unknown(hdr.class, hdr.tag, content);
             let obj = BerObject::from_header_and_content(hdr, content);
             return Ok((rem, obj));
         }
@@ -1196,7 +1184,7 @@ pub fn parse_ber_recursive(i: &[u8], max_depth: usize) -> BerResult {
         Ok((rem, content)) => Ok((rem, BerObject::from_header_and_content(hdr, content))),
         Err(Err::Error(BerError::UnknownTag)) => {
             let (rem, content) = ber_get_object_content(rem, &hdr, max_depth)?;
-            let content = BerObjectContent::Unknown(hdr.tag, content);
+            let content = BerObjectContent::Unknown(hdr.class, hdr.tag, content);
             let obj = BerObject::from_header_and_content(hdr, content);
             Ok((rem, obj))
         }
