@@ -62,6 +62,10 @@ pub use crate::der::multi::*;
 pub use crate::der::parser::*;
 pub use crate::der::tagged::*;
 
+use alloc::boxed::Box;
+use alloc::vec::Vec;
+use core::convert::{Into, TryFrom};
+
 /// DER Object class of tag (same as `BerClass`)
 pub type DerClass = BerClass;
 
