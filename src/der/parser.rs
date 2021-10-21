@@ -5,7 +5,6 @@ use nom::bytes::streaming::take;
 use nom::number::streaming::be_u8;
 use nom::{Err, Needed};
 use rusticata_macros::custom_check;
-use std::convert::{Into, TryFrom};
 
 /// Parse DER object recursively
 ///
@@ -317,22 +316,6 @@ where
     parse_ber_explicit_optional(i, tag, f)
 }
 
-/// Parse an optional tagged object, applying function to get content
-///
-/// This function is deprecated, use
-/// [parse_der_explicit_optional](fn.parse_der_explicit_optional.html) instead.
-#[deprecated(
-    since = "4.1.0",
-    note = "Please use `parse_der_explicit_optional` instead"
-)]
-#[inline]
-pub fn parse_der_explicit<F>(i: &[u8], tag: DerTag, f: F) -> BerResult
-where
-    F: Fn(&[u8]) -> BerResult,
-{
-    parse_der_explicit_optional(i, tag, f)
-}
-
 /// Parse an implicit tagged object, applying function to read content
 ///
 /// Note: unlike explicit tagged functions, the callback must be a *content* parsing function,
@@ -575,10 +558,16 @@ fn der_read_element_content_recursive<'a>(
     max_depth: usize,
 ) -> DerResult<'a> {
     match hdr.class {
-        DerClass::Universal | DerClass::Private => (),
+        BerClass::Universal => (),
+        BerClass::Private => {
+            let (rem, content) = ber_get_object_content(i, &hdr, max_depth)?;
+            let content = BerObjectContent::Private(hdr.clone(), content);
+            let obj = BerObject::from_header_and_content(hdr, content);
+            return Ok((rem, obj));
+        }
         _ => {
             let (i, content) = ber_get_object_content(i, &hdr, max_depth)?;
-            let content = DerObjectContent::Unknown(hdr.tag, content);
+            let content = DerObjectContent::Unknown(hdr.class, hdr.tag, content);
             let obj = DerObject::from_header_and_content(hdr, content);
             return Ok((i, obj));
         }
@@ -587,7 +576,7 @@ fn der_read_element_content_recursive<'a>(
         Ok((rem, content)) => Ok((rem, DerObject::from_header_and_content(hdr, content))),
         Err(Err::Error(BerError::UnknownTag)) => {
             let (rem, content) = ber_get_object_content(i, &hdr, max_depth)?;
-            let content = DerObjectContent::Unknown(hdr.tag, content);
+            let content = DerObjectContent::Unknown(hdr.class, hdr.tag, content);
             let obj = DerObject::from_header_and_content(hdr, content);
             Ok((rem, obj))
         }

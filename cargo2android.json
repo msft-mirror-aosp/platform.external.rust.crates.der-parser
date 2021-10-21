@@ -1,6 +1,6 @@
 {
     "device": true,
-    "features": "bigint",
+    "features": "bigint,std",
     "run": true
 }
 
