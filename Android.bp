@@ -57,4 +57,8 @@ rust_library {
         "librusticata_macros",
     ],
     proc_macros: ["libder_oid_macro"],
+    apex_available: [
+        "//apex_available:platform",
+        "com.android.virt",
+    ],
 }
