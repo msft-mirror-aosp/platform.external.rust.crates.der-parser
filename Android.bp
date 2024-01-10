@@ -64,4 +64,8 @@ rust_library {
     ],
     vendor_available: true,
     product_available: true,
+    visibility: [
+        "//external/rust/crates/x509-parser",
+        "//external/rust/crates/oid-registry",
+    ],
 }
